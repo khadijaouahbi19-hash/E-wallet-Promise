@@ -32,13 +32,16 @@ submitTransferBtn.addEventListener("click", handleTransfer);
 
 // Retrieve dashboard data
 const getDashboardData = () => {
+  const user = JSON.parse(sessionStorage.getItem("currentUser"));
   const monthlyIncome = user.wallet.transactions
     .filter((t) => t.type === "credit")
     .reduce((total, t) => total + t.amount, 0);
 
   const monthlyExpenses = user.wallet.transactions
     .filter((t) => t.type === "debit")
-    .reduce((total, t) => total + t.amount, 0);
+   .reduce((total, t) => total + t.amount, 0);
+ // const solde = user.wallet.balance + monthlyExpenses - monthlyIncome;
+
 
   return {
     userName: user.name,
@@ -51,7 +54,8 @@ const getDashboardData = () => {
 };
 
 function renderDashboard() {
-  const dashboardData = getDashboardData();
+  const dashboardData = getDashboardData(); 
+
   if (dashboardData) {
     greetingName.textContent = dashboardData.userName;
     currentDate.textContent = dashboardData.currentDate;
@@ -61,14 +65,17 @@ function renderDashboard() {
     activecards.textContent = dashboardData.activeCards;
   }
 
+  // relit depuis sessionStorage au lieu du user global
+  const freshUser = JSON.parse(sessionStorage.getItem("currentUser"));
   transactionsList.innerHTML = "";
-  user.wallet.transactions.forEach((transaction) => {
+  freshUser.wallet.transactions.forEach((transaction) => {
     const transactionItem = document.createElement("div");
     transactionItem.className = "transaction-item";
     transactionItem.innerHTML = `
       <div>${transaction.date}</div>
       <div>${transaction.amount} MAD</div>
       <div>${transaction.type}</div>
+      <div >${transaction.status === 'failed' ? 'echec ' + transaction.reason : 'Succès'}</div>
     `;
     transactionsList.appendChild(transactionItem);
   });
@@ -216,3 +223,129 @@ function handleTransfer(e) {
 
   transfer(user, beneficiaryAccount, amount);
 }
+// le recharge:
+const rechargebtn = document.getElementById("quickTopup");
+const closerechargeBtn = document.getElementById("closeTopupBtn");
+const cancelRechargeBtn = document.getElementById("cancelTopupBtn");
+const submitRechargeBtn = document.getElementById("submitTopupBtn");
+const cardSelect = document.getElementById("topupCard");
+
+
+rechargebtn.addEventListener("click", handleRechargesection);
+closerechargeBtn.addEventListener("click", closeRecharge);
+cancelRechargeBtn.addEventListener("click", closeRecharge);
+submitRechargeBtn.addEventListener("click", handleRecharge);
+
+
+function handleRechargesection() {
+  document.getElementById("topupPopup").classList.add("active");
+  document.body.classList.add("popup-open");
+}
+function closeRecharge() {
+  document.getElementById("topupPopup").classList.remove("active");
+  document.body.classList.remove("popup-open");
+}
+
+function renderCardsForRecharge() {
+  user.wallet.cards.forEach((card) => {
+    const option = document.createElement("option");
+    option.value = card.numcards;      
+    option.textContent = card.type + " ****" + card.numcards;
+    cardSelect.appendChild(option);
+  });
+}
+renderCardsForRecharge();
+function checkCard(cardId) {
+  return new Promise((resolve, reject) => {
+    setTimeout(() => {
+      const card = user.wallet.cards.find(
+        (c) => String(c.numcards) === String(cardId)  
+      );
+      if (card) {
+        resolve(card);
+      } else {
+        reject("Carte introuvable");
+      }
+    }, 2000);
+  });
+}
+function checkAmount(amount) {
+  return new Promise((resolve, reject) => {
+    setTimeout(() => {
+      if (amount > 10 && amount <= 5000 ) {
+        resolve("Montant valide"); 
+      } else {
+        reject("Montant invalide"); 
+      }
+    }, 2000);
+  });
+}
+function checkSoldeCard(cardId, amount) {
+  return new Promise((resolve,reject) => {
+    setTimeout(() => {
+      if (cardId.balance >= amount) {
+        resolve("Solde de la carte suffisant"); 
+      } else {
+        reject("Solde de la carte insuffisant"); 
+      }
+      
+    },2000);
+  })
+}
+function recharge(cardId, amount) {
+  checkCard(cardId)
+    .then((card) => {
+      console.log("Carte trouvée :", card.type);
+      return checkAmount(amount)
+        .then((amountMessage) => {
+          console.log(amountMessage);
+          return checkSoldeCard(cardId, amount);
+        })
+        .then((soldeMessage) => {
+          console.log("Étape 3 :", soldeMessage);
+
+          user.wallet.balance += amount;  
+
+          const credit = {
+            id: Date.now(),
+            type: "Recharge",
+            amount: amount,
+            date: new Date().toLocaleString(),
+            from: "Recharge - " + card.type,
+          };
+
+          user.wallet.transactions.push(credit);
+          sessionStorage.setItem("currentUser", JSON.stringify(user));
+          renderDashboard();
+          closeRecharge();
+        });
+    })
+    .catch((err) => {
+      console.log("Erreur :", err);
+      alert("Erreur : " + err);
+       const failed = {
+        id: Date.now(),
+        type: "Recharge",
+        amount: amount,
+        date: new Date().toLocaleString(),
+        from: "Recharge échouée",
+        status: "failed",                 //  état échec
+        reason: err,                      //  raison de l'échec
+      };
+
+      user.wallet.transactions.push(failed);
+      sessionStorage.setItem("currentUser", JSON.stringify(user));
+      renderDashboard();                  //  affiche la transaction échouée
+
+      //  message d'erreur à l'utilisateur
+      alert("Recharge échouée : " + err);
+    
+    });
+}
+function handleRecharge(e) {
+  e.preventDefault();
+  const cardId = document.getElementById("topupCard").value;
+  const amount = Number(document.getElementById("topupAmount").value);
+  recharge(cardId, amount);
+}
+
